@@ -3,7 +3,7 @@ import math
 from utils import *
 import utils
 
-COVERAGE = 10
+COVERAGE = 30
 RLEN = 100 # read length
 MAX_FRAGLEN = 500
 MIN_FRAGLEN = 150

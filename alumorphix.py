@@ -15,7 +15,7 @@ __author__ = 'pf'
 
 WIN_LENGTH = 30
 MIN_MAPQ = 10
-MIN_PEAK = 3
+MIN_PEAK = 5
 MIN_ALU_READS = 2
 
 rnames = lambda col: set([r.alignment.qname for r in col.pileups if r.alignment.mapq >= MIN_MAPQ])
@@ -31,11 +31,12 @@ def potential_ALU_insert(window, mean_heads, mean_tails):
     max_heads_pos = -1
     max_tails_pos = -1
     w_alu_reads = []
+    reason = ''
 
     for i in xrange(WIN_LENGTH - 10): #site in window[: WIN_LENGTH - 10]:
 
         if window[i]['insert_deviations']:
-            return True
+            reason = 'insert_deviation'
 
         w_alu_reads.extend(window[i]['alu_reads'])
         if window[i]['heads'] > max_heads:
@@ -47,14 +48,15 @@ def potential_ALU_insert(window, mean_heads, mean_tails):
             max_tails_pos = i
 
 
+    if (max_heads >= MIN_PEAK and
+                        #            window[max_heads_pos]['alu_heads'] >= MIN_ALU_READS_IN_PEAK and
+                        max_tails >= MIN_PEAK and
+                        #            window[max_tails_pos]['alu_tails'] >= MIN_ALU_READS_IN_PEAK and
+                        len(set(w_alu_reads)) >= MIN_ALU_READS and
+                        -2 <= (max_tails_pos - max_heads_pos) <= 10):
+        reason += ' peak'
 
-
-    return (max_heads >= MIN_PEAK and
-#            window[max_heads_pos]['alu_heads'] >= MIN_ALU_READS_IN_PEAK and
-            max_tails >= MIN_PEAK and
-#            window[max_tails_pos]['alu_tails'] >= MIN_ALU_READS_IN_PEAK and
-            len(set(w_alu_reads)) >= MIN_ALU_READS and
-            -2 <= (max_tails_pos - max_heads_pos) <= 10)
+    return reason
 
 
 
@@ -96,7 +98,7 @@ def site(col):
                 if qname in alu_reads:
                     alu_heads += 1
 
-            if is_alu_read and not aln.mate_is_unmapped and aln.tid == aln.rnext and abs(aln.pos - aln.pnext) < 50:
+            if is_alu_read and not aln.mate_is_unmapped and aln.mate_is_reverse != aln.is_reverse and aln.tid == aln.rnext and abs(aln.pos - aln.pnext) < 50:
                 insert_deviations = True
 
     return {'pos'   : col.pos,
@@ -106,7 +108,7 @@ def site(col):
             'tails'     : tails,
             'alu_tails' : alu_tails,
             'alu_reads' : site_alu_reads,
-            'insert_deviations'   : insert_deviations }
+            'insert_deviations'   : False } #insert_deviations }
 
 
 
@@ -203,42 +205,43 @@ if __name__ == '__main__':
 
 #        if col.pos < 36265890:
 #            continue
+        if boundary(window) and enough_coverage(window, reads_per_base):
+            reason = potential_ALU_insert(window, heads_per_base, tails_per_base)
+
+            if reason:
+                spanning = window_stats(window)
+
+                if spanning >= h0_mean:
+                    continue
+    #            hyp, _ = min((None, h0_mean), ('heterozygous', h1_mean), ('homozygous', h2_mean),
+    #                             key = lambda (hyp, mean): abs(spanning - mean))
+                hyp, _ = min( ('heterozygous', h1_mean), ('homozygous', h2_mean),
+                                 key = lambda (hyp, mean): abs(spanning - mean))
+
+                if hyp:
+                    chrom = inputf.getrname(col.tid)
+                    window = []
+                    skip_until = col.pos + RLEN
+
+                    fp = True
+                    for hap_no, haplotype_positions in enumerate(pers_alu_info[chrom]):
+
+                        for inserted in haplotype_positions:
+                            if abs(inserted['ref_pos'] - col.pos) < 300:
+                                if inserted in not_found[chrom][hap_no]: not_found[chrom][hap_no].remove(inserted)
+                                fp = False
 
 
-        if boundary(window) and enough_coverage(window, reads_per_base) and potential_ALU_insert(window, heads_per_base, tails_per_base):
-            spanning = window_stats(window)
+                    if fp:
+                        false_positives.append([hyp, spanning, chrom, col.pos, reason])
+                        fp_scores.append(spanning)
+                    else:
+                        tp_scores.append(spanning)
 
-            if spanning >= h0_mean:
-                continue
-#            hyp, _ = min((None, h0_mean), ('heterozygous', h1_mean), ('homozygous', h2_mean),
-#                             key = lambda (hyp, mean): abs(spanning - mean))
-            hyp, _ = min( ('heterozygous', h1_mean), ('homozygous', h2_mean),
-                             key = lambda (hyp, mean): abs(spanning - mean))
-
-            if hyp:
-                chrom = inputf.getrname(col.tid)
-                window = []
-                skip_until = col.pos + RLEN
-
-                fp = True
-                for hap_no, haplotype_positions in enumerate(pers_alu_info[chrom]):
-
-                    for inserted in haplotype_positions:
-                        if abs(inserted['ref_pos'] - col.pos) < 300:
-                            if inserted in not_found[chrom][hap_no]: not_found[chrom][hap_no].remove(inserted)
-                            fp = False
+                    logm('\t'.join(map(str, [hyp, not fp, spanning, chrom, col.pos, reason])))
 
 
-                if fp:
-                    false_positives.append([hyp, spanning, chrom, col.pos])
-                    fp_scores.append(spanning)
-                else:
-                    tp_scores.append(spanning)
-
-                logm('\t'.join(map(str, [hyp, not fp, spanning, chrom, col.pos])))
-
-
-    print 'False positives:\n', pformat(false_positives)
+    print 'False positives:\n', pformat(sorted(false_positives, key = lambda fp: (fp[-1], fp[-2])))
     print 'False negatives:\n', pformat(not_found)
     print
 

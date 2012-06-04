@@ -4,6 +4,8 @@ from utils import *
 import utils
 
 NEW_ALUS = 1000
+ALU_MUTATION_RATE = 0.05
+
 
 N_HAPS = 2
 
@@ -38,7 +40,7 @@ def add_alus(seq, alu, n_alus):
     for i in xrange(n_alus):
         pos = positions[i] + ins_len
 
-        to_insert, strand = orient(mutate(alu, mut_prob = 0.05))
+        to_insert, strand = orient(mutate(alu, mut_prob = ALU_MUTATION_RATE))
 
         ins_len += len(to_insert)
 

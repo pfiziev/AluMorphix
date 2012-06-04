@@ -4,8 +4,8 @@ then
   exit $E_BADARGS
 fi
 
-echo "$(date): python generate_subject_genome.py $1"
-python generate_subject_genome.py $1
+#echo "$(date): python generate_subject_genome.py $1"
+#python generate_subject_genome.py $1
 
 echo "$(date): python generate_reads.py $1"
 python generate_reads.py $1
