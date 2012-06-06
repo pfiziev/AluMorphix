@@ -15,8 +15,10 @@ __author__ = 'pf'
 
 WIN_LENGTH = 30
 MIN_MAPQ = 10
-MIN_PEAK = 5
+MIN_PEAK = 2
 MIN_ALU_READS = 2
+
+
 
 rnames = lambda col: set([r.alignment.qname for r in col.pileups if r.alignment.mapq >= MIN_MAPQ])
 
@@ -114,6 +116,237 @@ def site(col):
 
 
 
+count_alus = lambda nf: sum(len(pos) for c in nf for pos in nf[c])
+
+
+def detect_insertions( h0_mean, h1_mean, h2_mean, heads_per_base, inputf, reads_per_base, tails_per_base):
+    fp_scores, tp_scores = [], []
+    not_found_insertions = json.load(open(data_d('subject_genome.fa.alu_positions.json')))
+
+    if not not_found_insertions:
+        return
+
+    pers_alu_info = copy.deepcopy(not_found_insertions)
+    total_alus = count_alus(not_found_insertions)
+    false_positives = []
+    skip_until = -1
+    window = []
+
+    for col in inputf.pileup():
+        if col.pos < skip_until:
+            continue
+
+        if len(window) == WIN_LENGTH:
+            window = window[1:WIN_LENGTH]
+
+        window.append(site(col))
+
+        #        if col.pos < 36265890:
+        #            continue
+        if boundary(window) and enough_coverage(window, reads_per_base):
+            reason = potential_ALU_insert(window, heads_per_base, tails_per_base)
+
+            if reason:
+                spanning = window_stats(window)
+
+                if spanning >= h0_mean:
+                    continue
+                    #            hyp, _ = min((None, h0_mean), ('heterozygous', h1_mean), ('homozygous', h2_mean),
+                    #                             key = lambda (hyp, mean): abs(spanning - mean))
+                hyp, _ = min(('heterozygous', h1_mean), ('homozygous', h2_mean),
+                                key = lambda (hyp, mean): abs(spanning - mean))
+
+                if hyp:
+                    chrom = inputf.getrname(col.tid)
+                    window = []
+                    skip_until = col.pos + RLEN
+
+                    fp = True
+                    for hap_no, haplotype_positions in enumerate(pers_alu_info[chrom]):
+                        for inserted in haplotype_positions:
+                            if abs(inserted['ref_pos'] - col.pos) < 300:
+                                if inserted in not_found_insertions[chrom][hap_no]: not_found_insertions[chrom][
+                                                                                    hap_no].remove(inserted)
+                                fp = False
+
+                    if fp:
+                        false_positives.append([hyp, spanning, chrom, col.pos, reason])
+                        fp_scores.append(spanning)
+                    else:
+                        tp_scores.append(spanning)
+
+                    logm('\t'.join(map(str, [hyp, not fp, spanning, chrom, col.pos, reason])))
+
+    print 'False positives:\n', pformat(sorted(false_positives, key=lambda fp: (fp[-1], fp[-2])))
+    print 'False negatives:\n', pformat(not_found_insertions)
+    print
+    #print bgr_spanning, reads_per_base
+    print 'True positives: %d (%.2lf%%)\t' % (len(tp_scores), float(100 * len(tp_scores)) / (len(tp_scores) + len(fp_scores))), mean(tp_scores), var(tp_scores)
+
+    if fp_scores:
+        print 'False positives: %d (%.2lf%%)\t' % (
+
+        len(fp_scores), float(100 * len(fp_scores)) / (len(tp_scores) + len(fp_scores))), mean(fp_scores), var(fp_scores)
+
+    print 'False negatives: %d(%.2f%%)\n' % (count_alus(not_found_insertions), float(100 * count_alus(not_found_insertions)) / total_alus)
+
+
+
+def detect_deletions(h0_mean, h1_mean, h2_mean, heads_per_base, inputf, reads_per_base, tails_per_base):
+#    known_alus = json.load(open(data_d('genome/alu_positions.json')))
+    known_alus = json.load(open(data_d('genome/all_known_alus.json')))
+
+    deleted_alus = json.load(open(data_d('subject_genome.fa.deleted_alus.json')))
+    not_found = set(['%s %d' % (chr_id, alu['ref_pos']) for chr_id in deleted_alus for hap in deleted_alus[chr_id] for alu in hap])
+
+    alu_len = len(read_alu())
+
+    total_alus = count_alus(deleted_alus)
+
+    false_positives = []
+
+    def detect_tails_or_heads(pileup, detect_tails = True):
+        window = []
+        hyp = None
+        start = None
+        max_heads_or_tails = 0
+        for col in pileup:
+            start = start or col.pos
+            if col.pos > start + 200:
+#                print start, col.pos, detect_tails, max_heads_or_tails
+                break
+
+            if len(window) == WIN_LENGTH:
+                window = window[1:WIN_LENGTH]
+
+            window.append(site(col))
+#            print col.pos
+
+            if boundary(window) and enough_coverage(window, reads_per_base):
+
+                for s in window[:WIN_LENGTH - 10]:
+                    max_heads_or_tails = max(s['tails' if detect_tails else 'heads'], max_heads_or_tails)
+
+                if max_heads_or_tails >= MIN_PEAK+1:
+                    spanning = window_stats(window)
+
+                    if spanning >= h0_mean:
+                        continue
+                        #            hyp, _ = min((None, h0_mean), ('heterozygous', h1_mean), ('homozygous', h2_mean),
+                        #                             key = lambda (hyp, mean): abs(spanning - mean))
+                    hyp, _ = min(('heterozygous', h1_mean), ('homozygous', h2_mean),
+                                     key = lambda (hyp, mean): abs(spanning - mean))
+        return hyp
+
+    def set_pileup_position(pos, pileup):
+        col = pileup.next()
+        if col.pos > pos:
+            print 'cpos', col.pos, 'rewinding to', pos
+            pileup = inputf.pileup(reference = inputf.gettid(chr_id), start = pos - 5)
+            col = pileup.next()
+
+        while col.pos < pos:
+            col = pileup.next()
+        return pileup
+
+    for chr_id in known_alus:
+        print chr_id
+        to_check = sorted(known_alus[chr_id], key = lambda a: a['pos'])
+
+        # detect homozygous
+        homozygous = set()
+        pileup = inputf.pileup(reference = inputf.gettid(chr_id))
+        fp_keys = set()
+        while to_check:
+            print 'to_check:', len(to_check)
+            prev_pos = 0
+
+            for alu in list(to_check):
+
+                if alu['pos'] - prev_pos < 200:
+                    continue
+
+                to_check.remove(alu)
+
+                prev_pos = alu['pos'] + alu_len + 200
+
+
+                pileup = set_pileup_position(alu['pos'], pileup)
+                window_reads_per_base = 0
+                total_bases = 0
+                for col in pileup:
+                    window_reads_per_base += len(site(col)['reads'])
+                    total_bases += 1
+                    if col.pos > alu['pos'] + alu_len:
+                        break
+
+                window_reads_per_base /= float(total_bases)
+                if window_reads_per_base < reads_per_base/5:
+    #                print window_reads_per_base
+                    key = '%s %d' % (chr_id, alu['pos'])
+                    if key in not_found:
+                        print alu, 'Homozygous\tTrue Postive'
+                        not_found.remove(key)
+                        homozygous.add(key)
+                    else:
+                        print alu, 'Homozygous\tFalse Positve'
+                        fp_keys.add(key)
+                        false_positives.append(alu)
+
+        elapsed('homozygous')
+        print 'TP homozygous:', len(homozygous)
+        print 'FP homozygous:', len(false_positives)
+
+        pileup = inputf.pileup(reference = inputf.gettid(chr_id))
+
+        to_check = sorted(known_alus[chr_id], key = lambda a: a['pos'])
+
+
+        while to_check:
+            print 'to_check:', len(to_check)
+            prev_pos = 0
+            for alu in list(to_check):
+
+                if alu['pos'] - prev_pos < 200:
+                    continue
+
+                to_check.remove(alu)
+                key = '%s %d' % (chr_id, alu['pos'])
+                if key in homozygous or key in fp_keys:
+                    continue
+
+                prev_pos = alu['pos'] + alu_len + 200
+
+#            print 'testing ', alu
+
+                pileup = set_pileup_position(alu['pos'] - 100, pileup)
+                hyp1 = detect_tails_or_heads(pileup, detect_tails=True)
+    #            print hyp1
+
+                pileup = set_pileup_position(alu['pos'] + alu_len - 100, pileup)
+                hyp2 = detect_tails_or_heads(pileup, detect_tails=False)
+    #            print hyp2
+
+                if hyp1 and hyp2:
+                    if key in not_found:
+                        print alu, 'True Postive'
+                        not_found.remove(key)
+                    else:
+                        print alu, 'False Positve'
+                        false_positives.append(alu)
+                else:
+                    if key in not_found:
+                        print alu, 'False Negative'
+
+
+
+
+    print 'True positives: %d' % (total_alus - len(not_found))
+    print 'False positives: %d' % len(false_positives)
+    print 'False negatives: %d' % len(not_found)
+
+
+
 
 if __name__ == '__main__':
     if len(sys.argv) == 1:
@@ -121,11 +354,7 @@ if __name__ == '__main__':
 
     utils.DATA_DIR = sys.argv[1]
 
-    not_found = json.load(open(data_d('subject_genome.fa.alu_positions.json')))
-    pers_alu_info = copy.deepcopy(not_found)
-    count_alus = lambda nf: sum(len(pos) for c in nf for pos in nf[c])
-    total_alus = count_alus(not_found)
-    false_positives = []
+
 
     alu_reads = pickle.load(open(data_d('alu_reads.pickle')))
 
@@ -190,68 +419,10 @@ if __name__ == '__main__':
     h1_mean = bgr_spanning/2
     h2_mean = 0
 
-    fp_scores, tp_scores = [],[]
-
-    skip_until = -1
-    for col in inputf.pileup():
-        if col.pos < skip_until:
-            continue
-
-
-        if len(window) == WIN_LENGTH:
-            window = window[1:WIN_LENGTH]
-
-        window.append(site(col))
-
-#        if col.pos < 36265890:
-#            continue
-        if boundary(window) and enough_coverage(window, reads_per_base):
-            reason = potential_ALU_insert(window, heads_per_base, tails_per_base)
-
-            if reason:
-                spanning = window_stats(window)
-
-                if spanning >= h0_mean:
-                    continue
-    #            hyp, _ = min((None, h0_mean), ('heterozygous', h1_mean), ('homozygous', h2_mean),
-    #                             key = lambda (hyp, mean): abs(spanning - mean))
-                hyp, _ = min( ('heterozygous', h1_mean), ('homozygous', h2_mean),
-                                 key = lambda (hyp, mean): abs(spanning - mean))
-
-                if hyp:
-                    chrom = inputf.getrname(col.tid)
-                    window = []
-                    skip_until = col.pos + RLEN
-
-                    fp = True
-                    for hap_no, haplotype_positions in enumerate(pers_alu_info[chrom]):
-
-                        for inserted in haplotype_positions:
-                            if abs(inserted['ref_pos'] - col.pos) < 300:
-                                if inserted in not_found[chrom][hap_no]: not_found[chrom][hap_no].remove(inserted)
-                                fp = False
-
-
-                    if fp:
-                        false_positives.append([hyp, spanning, chrom, col.pos, reason])
-                        fp_scores.append(spanning)
-                    else:
-                        tp_scores.append(spanning)
-
-                    logm('\t'.join(map(str, [hyp, not fp, spanning, chrom, col.pos, reason])))
-
-
-    print 'False positives:\n', pformat(sorted(false_positives, key = lambda fp: (fp[-1], fp[-2])))
-    print 'False negatives:\n', pformat(not_found)
-    print
-
-    print bgr_spanning, reads_per_base
-    print 'True positives: %d (%.2lf%%)\t' % (len(tp_scores), float(100*len(tp_scores))/(len(tp_scores) + len(fp_scores))), mean(tp_scores), var(tp_scores)
-    if fp_scores:
-        print 'False positives: %d (%.2lf%%)\t' % (len(fp_scores), float(100*len(fp_scores))/(len(tp_scores) + len(fp_scores))), mean(fp_scores), var(fp_scores)
-
-    print 'False negatives: %d(%.2f%%)\n' % (count_alus(not_found), float(100*count_alus(not_found))/total_alus)
+    detect_insertions(h0_mean, h1_mean, h2_mean, heads_per_base, inputf, reads_per_base, tails_per_base)
+#    detect_deletions(h0_mean, h1_mean, h2_mean, heads_per_base, inputf, reads_per_base, tails_per_base)
     logm('done')
+    elapsed('done')
     inputf.close()
 
 

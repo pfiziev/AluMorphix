@@ -84,3 +84,8 @@ def read_alu():
 
 def logm(message):
     print "[%s] %s" % (datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S') , message)
+
+
+from math import factorial
+def binom(n,k):
+    return factorial(n) / (factorial(k)*factorial(n-k))

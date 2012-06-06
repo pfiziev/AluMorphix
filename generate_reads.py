@@ -10,13 +10,13 @@ MIN_FRAGLEN = 150
 
 
 SEQ_ERROR_MEAN = 0.05
-SEQ_ERROR_VARIANCE = 0.01
+SEQ_ERROR_STD = 0.01
 SEQ_ERROR_BINS = 5
 
 
 def add_seq_errors(seq):
     bases = list(seq)
-    error_rate = min(max(random.gauss(SEQ_ERROR_MEAN, SEQ_ERROR_VARIANCE), 0.0001 ), 1)
+    error_rate = min(max(random.gauss(SEQ_ERROR_MEAN, SEQ_ERROR_STD), 0.0001 ), 1)
     error_probs = [(i/(RLEN/SEQ_ERROR_BINS) + 1)*error_rate/((SEQ_ERROR_BINS+1)/2.) for i in xrange(RLEN)]
     for i in xrange(len(seq)):
         if random.random() <= error_probs[i]:

@@ -19,7 +19,7 @@ MAX_FRAGLEN = 500
 
 def add_alus(seq, alu, n_alus):
 
-    positions = []
+    positions = set()
     #    positions = sorted(random.sample(xrange(len(seq)), n_alus))
     while len(positions) != n_alus:
 
@@ -32,9 +32,9 @@ def add_alus(seq, alu, n_alus):
                     break
             if pos_is_ok:
                 break
-        positions.append(pos)
+        positions.add(pos)
 
-    positions.sort()
+    positions = sorted(positions)
 
     ins_len = 0
     for i in xrange(n_alus):
