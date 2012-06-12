@@ -5,8 +5,8 @@ then
 fi
 
 cd ${@: -1}
-#echo "$(date): bowtie2-build"
-#bowtie2-build --quiet alu.fa bowtie2_index/alu_bt2
+echo "$(date): bowtie2-build"
+bowtie2-build --quiet alu/alu.fa alu/bowtie2_index/alu_bt2
 
 echo "$(date): bt2 pair1 vs alu"
 bowtie2  -p 4 --quiet --local -x alu/bowtie2_index/alu_bt2 -U pair1.fastq | samtools view -bS - | samtools sort - pair1_vs_alu.sorted

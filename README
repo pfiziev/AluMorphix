@@ -1,0 +1,40 @@
+This file provides a brief description of my project and all scripts that I have programmed.
+
+SYSTEM REQUIREMENTS:
+1. Python 2.7
+2. Bowtie 2
+3. Samtools
+4. Pysam
+
+A collection of shell scripts run
+
+run.sh: This script runs the whole analysis pipeline:
+1. Generate a diploid subject genome
+2. Generate a set of random pair-end reads
+3. Align all reads against a database of known Alu sequences
+4. Tag reads that map to Alus
+5. Align the reads against the reference genome
+6. Process alignments and report potential insertions, deletions and if they are heterozygous or homozygous
+
+run_random.sh - runs the whole pipeline, but generates a random reference genome instead of using real data.
+
+Various scripts to generate the subject genome and the short reads:
+generate_random_genome.py
+generate_reads.py
+generate_subject_genome_and_reads.py
+generate_subject_genome.py
+generate_subject_genome_with_deletions.py
+
+
+bowtie2_build.sh - builds an index for the reference genome
+
+bowtie2.sh - mapsthe short reads to the reference genome
+bt2_vs_alu.sh - maps shorts reads to the Alu db
+
+mark_ALU_reads.py - scans the alignments of the reads and the known Alu sequences and tags reads that come from an Alu.
+
+utils.py - some utility methods
+
+alumorphix.py - determines potential insertions and deletions and if they are heterozygous or homozygous
+
+
