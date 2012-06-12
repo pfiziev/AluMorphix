@@ -37,4 +37,37 @@ utils.py - some utility methods
 
 alumorphix.py - determines potential insertions and deletions and if they are heterozygous or homozygous
 
+The project assumens that the data is organized as following:
 
+chr22_diploid_30x/:
+
+chr22_diploid_30x/alu: # put all information about known Alus here
+alu.fa  # the sequence of the Alu
+alu.fa.fai  #indexed with samtools
+bowtie2_index   # bowtie2 index of the Alu sequence
+
+chr22_diploid_30x/genome:   # the reference genome
+alu.fa
+alu.fa.fai
+bowtie2_index
+chr22_ALU
+chr22_ALU.bed
+genome.fa
+genome.fa.fai
+
+
+chr22_diploid_30x/alu/bowtie2_index:
+alu_bt2.1.bt2
+alu_bt2.2.bt2
+alu_bt2.3.bt2
+alu_bt2.4.bt2
+alu_bt2.rev.1.bt2
+alu_bt2.rev.2.bt2
+
+chr22_diploid_30x/genome/bowtie2_index:
+genome.1.bt2
+genome.2.bt2
+genome.3.bt2
+genome.4.bt2
+genome.rev.1.bt2
+genome.rev.2.bt2
